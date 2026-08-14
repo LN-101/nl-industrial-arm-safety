@@ -1,0 +1,154 @@
+
+<mujoco model="robot2">
+  <compiler angle="radian"/>
+  <option timestep="0.002" wind="0 0 0" gravity="0 0 -9.81" integrator="implicitfast" density="1.225"/>
+  <visual>
+
+    <quality shadowsize="2048" />
+      <map znear="0.1" zfar="50"/>
+  <rgba fog="0 1 0 1" haze=".2 .2 .2 0.3"/> <!-- 纯白天空 + 柔和雾霭 -->
+  </visual>
+  <asset>
+                <!-- 天空盒纹理：沙漠风景 -->
+        <texture type="skybox" file="../img/desert.png"
+            gridsize="3 4" gridlayout=".U..LFRB.D.." />
+                <!-- 四面体网格 -->
+        <mesh name="tetrahedron" vertex="0 0 0 1 0 0 0 1 0 0 0 1" />
+        <!-- 地面纹理：棋盘格，黑白相间 -->
+        <texture name="plane" type="2d" builtin="checker" rgb1=".1 .1 .1" rgb2=".9 .9 .9"
+            width="512" height="512" mark="cross" markrgb=".8 .8 .8" />
+        <!-- 地面材质 -->
+        <material name="plane" reflectance="0.3" texture="plane" texrepeat="1 1" texuniform="true" />
+        <!-- 绿色箱体材质 -->
+        <material name="box" rgba="0 0.5 0 1" emission="0" />
+    <mesh name="base_link" content_type="model/stl" file="../meshes/base_link.STL"/>
+    <mesh name="j1_Link" content_type="model/stl" file="../meshes/j1_Link.STL"/>
+    <mesh name="j2_Link" content_type="model/stl" file="../meshes/j2_Link.STL"/>
+    <mesh name="j3_Link" content_type="model/stl" file="../meshes/j3_Link.STL"/>
+    <mesh name="j4_Link" content_type="model/stl" file="../meshes/j4_Link.STL"/>
+    <mesh name="j5_Link" content_type="model/stl" file="../meshes/j5_Link.STL"/>
+    <mesh name="j6_Link" content_type="model/stl" file="../meshes/j6_Link.STL"/>
+  </asset>
+
+  <worldbody>
+    <!-- 地面 -->
+          <!-- 地面：无限大平面，3个接触维度 -->
+        <geom name="floor" pos="0 0 0" size="0 0 .25" type="plane" material="plane"
+            condim="3" />
+        <!-- 平行光 -->
+        <light directional="true" ambient=".3 .3 .3" pos="30 30 30" dir="0 -2 -1"
+            diffuse=".5 .5 .5" specular=".5 .5 .5" />
+
+            <camera name="this_camera" pos="0 0 1.5" euler="0 0 0" fovy="45"/> <!-- 固定摄像机 -->
+      <body name="base_link" pos="0 0 0">
+    <geom type="mesh" rgba="1 1 1 1" mesh="base_link"/>
+
+    <!-- j1_Link: quat="-3.67321e-06 0 0 1" → 无旋转 -->
+    <body name="j1_Link" pos="0.08 0.08 0.039" euler="0 0 3.14">
+      <inertial pos="-0.00368331 -0.0113205 0.112329" quat="0.989154 -0.00110874 0.0655151 0.131455" mass="0.427328" diaginertia="0.000224635 0.00022137 0.000123951"/>
+      <joint name="j1_joint" pos="0 0 0" axis="0 0 -1" range="-3.14 3.14" actuatorfrcrange="-300 300"/>
+      <geom type="mesh" rgba="0.14902 0.14902 0.14902 1" mesh="j1_Link"/>
+
+      <!-- j2_Link: quat="0.707105 0.707108 0 0" → 绕Z轴+90° -->
+      <body name="j2_Link" pos="0 0.052981 0.153" euler="1.57 0 0">
+        <inertial pos="-0.075 0 0.00549028" quat="-6.79812e-05 0.707107 6.79812e-05 0.707107" mass="0.0496479" diaginertia="9.10862e-05 8.74226e-05 4.41999e-06"/>
+        <joint name="j2_joint" pos="0 0 0" axis="0 0 1" range="-3.14 0" actuatorfrcrange="-300 300"/>
+        <geom type="mesh" rgba="1 1 1 1" mesh="j2_Link"/>
+
+        <!-- j3_Link: 无旋转 -->
+        <body name="j3_Link" pos="-0.15 0 0.018" euler="0 0 0">
+          <inertial pos="-0.0260794 0.0312427 0.0488675" quat="0.500214 0.500144 0.499864 0.499778" mass="0.398882" diaginertia="0.000137387 0.00013361 0.000114207"/>
+          <joint name="j3_joint" pos="0 0 0" axis="0 0 1" range="-3.14 3.14" actuatorfrcrange="-300 300"/>
+          <geom type="mesh" rgba="1 1 1 1" mesh="j3_Link"/>
+
+          <!-- j4_Link: quat="-0.707105 0 -0.707108 0" → 绕Y轴-90°后再绕? 实际等效绕X轴180° -->
+          <body name="j4_Link" pos="0.009 0.059361 0.035" euler="3.1416 1.57 0">
+            <inertial pos="-0.00396142 -1.13151e-06 0.0774846" quat="0.510716 0.489054 0.48905 0.510711" mass="0.24806" diaginertia="9.87684e-05 8.58838e-05 7.82496e-05"/>
+            <joint name="j4_joint" pos="0 0 0" axis="0 0 -1" range="-3.14 3.14" actuatorfrcrange="-300 300"/>
+            <geom type="mesh" rgba="1 1 1 1" mesh="j4_Link"/>
+
+            <!-- j5_Link: quat="0.707105 0 0.707108 0" → 绕Z轴+90° -->
+            <body name="j5_Link" pos="-0.05 0 0.104" euler="-1.57 1.57 -1.5708">
+              <inertial pos="0.0578983 2.75448e-07 0.033873" quat="0.621413 0.338418 0.339189 0.619895" mass="0.147033" diaginertia="0.000119812 0.000118284 3.98727e-05"/>
+              <joint name="j5_joint" pos="0 0 0" axis="0 0 -1" range="-2.2 2.2" actuatorfrcrange="-300 300"/>
+              <geom type="mesh" rgba="1 1 1 1" mesh="j5_Link"/>
+
+              <!-- j6_Link: quat="-2.59734e-06 0.707105 2.59735e-06 0.707108" → 绕Y轴+90° -->
+<!-- j6_Link 部分修正 -->
+<body name="j6_Link" pos="0.1025 0 0.05" euler="0 -1.5708 0">
+    <inertial pos="-8.04121e-10 -2.94384e-08 0.0213303"
+              quat="0.760162 0 0 0.649734"
+              mass="0.0256026"
+              diaginertia="4.38144e-05 4.09094e-05 5.82681e-06"/>
+    <joint name="j6_joint" pos="0 0 0" axis="0 0 -1"
+           range="-3.14 3.14" actuatorfrcrange="-300 300"/>
+    <geom type="mesh" rgba="1 1 1 1" mesh="j6_Link"/>
+
+    <!-- ✅ 修正：ee_center_body 作为 j6_Link 的子body -->
+    <body name="ee_center_body" pos="0 0 -0.03">
+        <!-- 可视化几何体（红色球体） -->
+        <geom name="ee_center_geom"
+              type="sphere"
+              size="0.02"
+              rgba="1 0 0 0.8"
+              contype="0"
+              conaffinity="0"
+              mass="0.001"/>
+
+        <!-- 用于参考的site -->
+        <site name='ee_center_site'
+              type="sphere"
+              size="0.005"
+              rgba="0 1 0 1"/>
+    </body>
+</body>
+<!-- j6_Link 结束 -->
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+    </body>
+  </worldbody>
+
+  <!-- ========== 位置控制器配置 ========== -->
+  <actuator>
+    <!-- j1 位置控制器 -->
+    <position name="j1_ctrl" joint="j1_joint"
+              kp="800" kv="60"
+              ctrlrange="-3.14 3.14"
+              forcerange="-300 300"/>
+
+    <!-- j2 位置控制器 -->
+    <position name="j2_ctrl" joint="j2_joint"
+              kp="800" kv="60"
+              ctrlrange="-3.14 0"
+              forcerange="-300 300"/>
+
+    <!-- j3 位置控制器 -->
+    <position name="j3_ctrl" joint="j3_joint"
+              kp="800" kv="60"
+              ctrlrange="-3.14 3.14"
+              forcerange="-300 300"/>
+
+    <!-- j4 位置控制器 -->
+    <position name="j4_ctrl" joint="j4_joint"
+              kp="800" kv="60"
+              ctrlrange="-3.14 3.14"
+              forcerange="-300 300"/>
+
+    <!-- j5 位置控制器 -->
+    <position name="j5_ctrl" joint="j5_joint"
+              kp="800" kv="60"
+              ctrlrange="-2.2 2.2"
+              forcerange="-300 300"/>
+
+    <!-- j6 位置控制器 -->
+    <position name="j6_ctrl" joint="j6_joint"
+              kp="800" kv="60"
+              ctrlrange="-3.14 3.14"
+              forcerange="-300 300"/>
+  </actuator>
+
+
+</mujoco>

@@ -1,0 +1,10 @@
+{
+  "arm_capture": "False",
+  "arm_capture_goal": "B",
+  "arm_decelerate": "1",
+  "arm_stop": "False",
+  "arm_recover": "False",
+  "arm_safety_distance": "3",
+  "arm_capture_object": "\u7ea2\u8272\u7269\u4f53",
+  "arm_capture_original_text": "\u6293\u53d6\u7ea2\u8272\u7269\u4f53"
+}

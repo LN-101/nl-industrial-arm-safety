@@ -1,0 +1,20 @@
+{
+  "asr_model": "whisper-large-v3-turbo",
+  "llm_model": "qwen35-2b",
+  "large_llm_model": "qwen35-9b",
+  "rule_edit_strategy": "two-pass",
+  "device_policy": {
+    "asr_whisper_turbo": ["GPU", "CPU", "NPU"],
+    "llm_qwen35_2b": ["GPU", "CPU", "NPU"],
+    "llm_qwen35_9b": ["CPU", "GPU", "NPU"],
+    "tts_melo_acoustic": ["CPU", "GPU"],
+    "tts_melo_bert": ["CPU", "GPU", "NPU"],
+    "tts_melo_deepfilter": ["NPU", "GPU", "CPU"]
+  },
+  "melotts": {
+    "binary": "MeloTTS.cpp/build/meloTTS_ov",
+    "model_dir": "MeloTTS.cpp/ov_models",
+    "language": "ZH",
+    "speed": 0.8
+  }
+}

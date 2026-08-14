@@ -1,0 +1,181 @@
+{
+  "schema_version": 2,
+  "version": 25,
+  "rules": [
+    {
+      "id": "stop_motion",
+      "enabled": true,
+      "type": "command_guard",
+      "title": "急停或停止机械臂",
+      "summary": "停止机械臂运动前应优先保障现场安全。",
+      "keywords": [
+        "停止",
+        "急停",
+        "停止机械臂",
+        "立即停止",
+        "停机"
+      ],
+      "command": {
+        "action": "stop_motion",
+        "aliases": [
+          "emergency_stop"
+        ],
+        "target": "机械臂"
+      },
+      "safety": {
+        "requires_confirmation": false,
+        "risk_tags": [
+          "motion",
+          "emergency"
+        ]
+      }
+    },
+    {
+      "id": "open_gripper",
+      "enabled": true,
+      "type": "command_guard",
+      "title": "打开夹爪",
+      "summary": "打开夹爪前要确认末端无人员接触、工件不会跌落。",
+      "keywords": [
+        "打开",
+        "夹爪",
+        "打开夹爪",
+        "松开夹爪",
+        "张开夹爪"
+      ],
+      "command": {
+        "action": "open_gripper",
+        "target": "夹爪"
+      },
+      "safety": {
+        "requires_confirmation": true,
+        "risk_tags": [
+          "gripper",
+          "release"
+        ]
+      }
+    },
+    {
+      "id": "close_gripper",
+      "enabled": true,
+      "type": "command_guard",
+      "title": "关闭夹爪",
+      "summary": "关闭夹爪前要确认夹持区域无人手和异物。",
+      "keywords": [
+        "关闭",
+        "夹紧",
+        "夹爪",
+        "关闭夹爪",
+        "合上夹爪"
+      ],
+      "command": {
+        "action": "close_gripper",
+        "target": "夹爪"
+      },
+      "safety": {
+        "requires_confirmation": true,
+        "risk_tags": [
+          "gripper",
+          "pinch"
+        ]
+      }
+    },
+    {
+      "id": "reset_after_alarm",
+      "enabled": true,
+      "type": "command_guard",
+      "title": "报警复位",
+      "summary": "只有在报警原因已经排除后，才允许执行复位。",
+      "keywords": [
+        "复位",
+        "报警",
+        "清除",
+        "报警复位",
+        "清除报警"
+      ],
+      "command": {
+        "action": "reset_after_alarm",
+        "target": "机械臂"
+      },
+      "safety": {
+        "requires_confirmation": true,
+        "risk_tags": [
+          "alarm",
+          "recovery"
+        ]
+      }
+    },
+    {
+      "id": "reduce_speed",
+      "enabled": true,
+      "type": "command_guard",
+      "title": "降低安全速度",
+      "summary": "减速请求必须给出明确速度百分比。",
+      "keywords": [
+        "减速",
+        "速度",
+        "降低速度",
+        "安全速度",
+        "速度百分比"
+      ],
+      "command": {
+        "action": "reduce_speed",
+        "target": "机械臂"
+      },
+      "constraints": {
+        "speed_percent": {
+          "min": 1,
+          "max": 40,
+          "required": true
+        }
+      },
+      "safety": {
+        "requires_confirmation": true,
+        "risk_tags": [
+          "speed",
+          "limit"
+        ]
+      }
+    },
+    {
+      "id": "visual_color_estop",
+      "enabled": true,
+      "type": "event_trigger",
+      "title": "视觉色块急停",
+      "summary": "视觉检测到指定颜色色块时触发机械臂急停。",
+      "keywords": [
+        "视觉",
+        "色块",
+        "颜色",
+        "急停",
+        "视觉急停",
+        "色块急停",
+        "色块规则",
+        "颜色规则",
+        "红色色块"
+      ],
+      "safety": {
+        "requires_confirmation": false,
+        "risk_tags": [
+          "vision",
+          "color_block",
+          "emergency"
+        ]
+      },
+      "trigger": {
+        "source": "vision.color_block",
+        "field": "color",
+        "operator": "equals",
+        "value": "yellow",
+        "allowed_values": [
+          "yellow",
+          "purple"
+        ]
+      },
+      "action": {
+        "name": "emergency_stop",
+        "target": "机械臂"
+      }
+    }
+  ]
+}

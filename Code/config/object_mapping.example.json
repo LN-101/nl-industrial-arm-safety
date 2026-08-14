@@ -1,0 +1,21 @@
+{
+  "version": 17,
+  "markers": {
+    "A": {
+      "object": "\u666e\u901a\u7535\u6c60",
+      "enabled": true
+    },
+    "B": {
+      "object": "\u7ea2\u8272\u7269\u4f53",
+      "enabled": true
+    },
+    "C": {
+      "object": "\u9ed1\u5496\u5561",
+      "enabled": true
+    },
+    "D": {
+      "object": "\u5de5\u5177\u7bb1",
+      "enabled": true
+    }
+  }
+}

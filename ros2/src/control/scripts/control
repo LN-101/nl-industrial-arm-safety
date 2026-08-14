@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -e
+
+CONDA_HOME="${CONDA_HOME:-/home/robot/miniconda3}"
+CONTROL_CONDA_ENV="${CONTROL_CONDA_ENV:-mujoco_to_ros2}"
+
+source "${CONDA_HOME}/etc/profile.d/conda.sh"
+conda activate "${CONTROL_CONDA_ENV}"
+
+CMEEL_LIB="${CONDA_PREFIX}/lib/python3.10/site-packages/cmeel.prefix/lib"
+export LD_LIBRARY_PATH="${CMEEL_LIB}:${LD_LIBRARY_PATH:-}"
+export PYTHONNOUSERSITE=1
+
+exec "${CONDA_PREFIX}/bin/python3" -c "from control.control import main; main()" "$@"

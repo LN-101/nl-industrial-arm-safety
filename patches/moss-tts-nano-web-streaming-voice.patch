@@ -1,0 +1,1228 @@
+diff --git a/app.py b/app.py
+index 1141b62..849de77 100644
+--- a/app.py
++++ b/app.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import argparse
++import asyncio
+ import base64
+ import io
+ import json
+@@ -352,6 +353,9 @@ class RequestRuntimeManager:
+                     torch.set_num_threads(previous_threads)
+ 
+ 
++STREAMING_JOB_CLOSE_TIMEOUT_SECONDS = 12.0
++
++
+ @dataclass
+ class StreamingJob:
+     stream_id: str
+@@ -373,9 +377,43 @@ class StreamingJob:
+     chunk_index_base: int | None = None
+     audio_chunk_ranges: list[tuple[float, float, int]] = field(default_factory=list)
+     is_closed: bool = False
++    cancel_event: threading.Event = field(default_factory=threading.Event)
++    worker_done_event: threading.Event = field(default_factory=threading.Event)
++    cancel_requested_at: float | None = None
++    worker_stopped_at: float | None = None
++    cancellation_error: str | None = None
+     final_result: dict[str, object] | None = None
+     lock: threading.Lock = field(default_factory=threading.Lock)
+ 
++    def request_cancel(self) -> bool:
++        with self.lock:
++            first_request = not self.cancel_event.is_set()
++            self.cancel_event.set()
++            self.is_closed = True
++            if first_request:
++                self.cancel_requested_at = time.monotonic()
++            self.state = "closed" if self.state not in {"done", "failed"} else self.state
++            while True:
++                try:
++                    self.audio_queue.put_nowait(None)
++                    break
++                except queue.Full:
++                    # Cancellation may discard queued PCM, but it must always
++                    # leave a terminal marker so a disconnected HTTP consumer
++                    # cannot remain blocked behind a full queue.
++                    try:
++                        self.audio_queue.get_nowait()
++                    except queue.Empty:
++                        continue
++        return first_request
++
++    def mark_worker_stopped(self, *, error: str | None = None) -> None:
++        with self.lock:
++            self.worker_stopped_at = time.monotonic()
++            if error and self.cancel_event.is_set():
++                self.cancellation_error = error
++        self.worker_done_event.set()
++
+     def _resolve_playback_chunk_index_locked(self) -> int | None:
+         if not self.audio_chunk_ranges:
+             return self.current_chunk_index
+@@ -410,6 +448,11 @@ class StreamingJob:
+                 "ready": self.state == "done",
+                 "failed": self.state == "failed",
+                 "closed": self.is_closed,
++                "cancel_requested": self.cancel_event.is_set(),
++                "cancel_requested_at": self.cancel_requested_at,
++                "worker_stopped": self.worker_done_event.is_set(),
++                "worker_stopped_at": self.worker_stopped_at,
++                "cancellation_error": self.cancellation_error,
+             }
+ 
+ 
+@@ -434,13 +477,8 @@ class StreamingJobManager:
+             job = self._jobs.get(stream_id)
+         if job is None:
+             return None
+-        with job.lock:
+-            job.is_closed = True
+-            job.state = "closed" if job.state not in {"done", "failed"} else job.state
+-            try:
+-                job.audio_queue.put_nowait(None)
+-            except queue.Full:
+-                pass
++        if job.request_cancel():
++            logging.info("MOSS stream cancellation requested stream_id=%s", stream_id)
+         return job
+ 
+     def delete(self, stream_id: str) -> StreamingJob | None:
+@@ -2285,7 +2323,8 @@ def _build_app(
+         job: StreamingJob,
+         *,
+         text: str,
+-        prompt_audio_path: str,
++        voice: str | None,
++        prompt_audio_path: str | None,
+         prompt_audio_display_path: str,
+         prompt_audio_cleanup_path: str | None,
+         max_new_frames: int,
+@@ -2312,25 +2351,30 @@ def _build_app(
+                 job.run_status = f"Streaming realtime audio... exec={initial_execution_label}"
+ 
+             def _stream_factory(selected_runtime: NanoTTSService):
++                stream_kwargs = {
++                    "text": text,
++                    "mode": "voice_clone",
++                    "voice": voice,
++                    "prompt_audio_path": prompt_audio_path,
++                    "max_new_frames": int(max_new_frames),
++                    "voice_clone_max_text_tokens": int(voice_clone_max_text_tokens),
++                    "tts_max_batch_size": int(tts_max_batch_size),
++                    "codec_max_batch_size": int(codec_max_batch_size),
++                    "attn_implementation": _resolve_attn_for_runtime(selected_runtime, attn_implementation),
++                    "do_sample": bool(do_sample),
++                    "text_temperature": float(text_temperature),
++                    "text_top_p": float(text_top_p),
++                    "text_top_k": int(text_top_k),
++                    "audio_temperature": float(audio_temperature),
++                    "audio_top_p": float(audio_top_p),
++                    "audio_top_k": int(audio_top_k),
++                    "audio_repetition_penalty": float(audio_repetition_penalty),
++                    "seed": seed,
++                }
++                if getattr(selected_runtime, "supports_cooperative_stream_cancellation", False):
++                    stream_kwargs["cancel_event"] = job.cancel_event
+                 return selected_runtime.synthesize_stream(
+-                    text=text,
+-                    mode="voice_clone",
+-                    voice=None,
+-                    prompt_audio_path=prompt_audio_path,
+-                    max_new_frames=int(max_new_frames),
+-                    voice_clone_max_text_tokens=int(voice_clone_max_text_tokens),
+-                    tts_max_batch_size=int(tts_max_batch_size),
+-                    codec_max_batch_size=int(codec_max_batch_size),
+-                    attn_implementation=_resolve_attn_for_runtime(selected_runtime, attn_implementation),
+-                    do_sample=bool(do_sample),
+-                    text_temperature=float(text_temperature),
+-                    text_top_p=float(text_top_p),
+-                    text_top_k=int(text_top_k),
+-                    audio_temperature=float(audio_temperature),
+-                    audio_top_p=float(audio_top_p),
+-                    audio_top_k=int(audio_top_k),
+-                    audio_repetition_penalty=float(audio_repetition_penalty),
+-                    seed=seed,
++                    **stream_kwargs,
+                 )
+ 
+             for event, resolved_execution_device, resolved_cpu_threads in runtime_manager.iter_with_runtime(
+@@ -2409,10 +2453,17 @@ def _build_app(
+                 job.run_status = f"Stream failed: {exc}"
+         finally:
+             _maybe_delete_file(prompt_audio_cleanup_path)
+-            try:
+-                job.audio_queue.put_nowait(None)
+-            except queue.Full:
+-                pass
++            if job.cancel_event.is_set():
++                job.request_cancel()
++            else:
++                job.audio_queue.put(None)
++            job.mark_worker_stopped(error=job.error)
++            if job.cancel_event.is_set():
++                logging.info(
++                    "MOSS stream worker stopped stream_id=%s error=%s",
++                    job.stream_id,
++                    job.cancellation_error or "none",
++                )
+ 
+     @app.get("/", response_class=HTMLResponse)
+     async def index(request: Request):
+@@ -2430,12 +2481,17 @@ def _build_app(
+ 
+     @app.get("/health")
+     async def health():
++        runtime_manager_status_getter = getattr(runtime_manager, "status", None)
++        runtime_manager_status = (
++            runtime_manager_status_getter() if callable(runtime_manager_status_getter) else {}
++        )
+         return {
+             "status": "ok",
+             "device": str(runtime.device),
+             "dtype": str(runtime.dtype),
+             "cpu_runtime_loaded": runtime_manager.is_cpu_runtime_loaded(),
+             "default_cpu_threads": runtime_manager.default_cpu_threads,
++            "runtime_manager": runtime_manager_status,
+             "attn_implementation": runtime.attn_implementation or "model_default",
+             "checkpoint_default_attn_implementation": runtime._checkpoint_global_attn_implementation or "unknown",
+             "checkpoint_default_local_attn_implementation": runtime._checkpoint_local_attn_implementation or "unknown",
+@@ -2501,6 +2557,7 @@ def _build_app(
+     @app.post("/api/generate-stream/start")
+     async def generate_stream_start(
+         text: str = Form(...),
++        voice: str = Form(""),
+         demo_id: str = Form(""),
+         prompt_audio: UploadFile | None = File(None),
+         max_new_frames: int = Form(375),
+@@ -2521,12 +2578,24 @@ def _build_app(
+         audio_repetition_penalty: float = Form(1.2),
+         seed: str = Form("0"),
+     ):
+-        try:
+-            demo_entry, prompt_audio_path, prompt_audio_display_path, prompt_audio_cleanup_path = (
+-                await _resolve_prompt_audio_request(demo_id=demo_id, prompt_audio=prompt_audio)
+-            )
+-        except ValueError as exc:
+-            return JSONResponse(status_code=400, content={"error": str(exc)})
++        normalized_voice = str(voice or "").strip() or None
++        if normalized_voice is not None:
++            if str(demo_id or "").strip() or prompt_audio is not None:
++                return JSONResponse(
++                    status_code=400,
++                    content={"error": "voice cannot be combined with demo_id or prompt_audio."},
++                )
++            demo_entry = None
++            prompt_audio_path = None
++            prompt_audio_display_path = ""
++            prompt_audio_cleanup_path = None
++        else:
++            try:
++                demo_entry, prompt_audio_path, prompt_audio_display_path, prompt_audio_cleanup_path = (
++                    await _resolve_prompt_audio_request(demo_id=demo_id, prompt_audio=prompt_audio)
++                )
++            except ValueError as exc:
++                return JSONResponse(status_code=400, content={"error": str(exc)})
+ 
+         resolved_text = str(text or "").strip() or (demo_entry.text if demo_entry is not None else "")
+         if not resolved_text:
+@@ -2569,6 +2638,7 @@ def _build_app(
+                 kwargs={
+                     "job": job,
+                     "text": str(prepared_texts["text"]),
++                    "voice": normalized_voice,
+                     "prompt_audio_path": prompt_audio_path,
+                     "prompt_audio_display_path": prompt_audio_display_path,
+                     "prompt_audio_cleanup_path": prompt_audio_cleanup_path,
+@@ -2604,6 +2674,7 @@ def _build_app(
+                 "sample_rate": job.sample_rate,
+                 "channels": job.channels,
+                 "run_status": f"Streaming realtime audio... exec={initial_execution_label}",
++                "voice": normalized_voice,
+                 "prompt_audio_path": prompt_audio_display_path,
+                 "warmup_status_text": _warmup_status_text(warmup_manager.snapshot()),
+                 "text_normalization_status_text": _text_normalization_status_text(
+@@ -2699,6 +2770,26 @@ def _build_app(
+         job = stream_jobs.close(stream_id)
+         if job is None:
+             return JSONResponse(status_code=404, content={"error": "stream not found"})
++        worker_stopped = await asyncio.to_thread(
++            job.worker_done_event.wait,
++            STREAMING_JOB_CLOSE_TIMEOUT_SECONDS,
++        )
++        if not worker_stopped:
++            with job.lock:
++                job.cancellation_error = (
++                    f"stream worker did not stop within {STREAMING_JOB_CLOSE_TIMEOUT_SECONDS:.1f}s"
++                )
++            logging.error(
++                "MOSS stream cancellation timed out stream_id=%s timeout_seconds=%.1f; runtime restart required",
++                stream_id,
++                STREAMING_JOB_CLOSE_TIMEOUT_SECONDS,
++            )
++            snapshot = job.snapshot()
++            snapshot["status_text"] = _format_stream_status(snapshot)
++            return JSONResponse(
++                status_code=503,
++                content={"error": job.cancellation_error, "runtime_restart_required": True, **snapshot},
++            )
+         audio_cleanup_path = ""
+         with job.lock:
+             if job.final_result is not None:
+diff --git a/app_onnx.py b/app_onnx.py
+index 19c87ed..fa22ece 100644
+--- a/app_onnx.py
++++ b/app_onnx.py
+@@ -29,6 +29,20 @@ REPO_ROOT = APP_DIR
+ from ort_cpu_runtime import _normalize_execution_provider, _resolve_stream_decode_frame_budget
+ 
+ _LEGACY_RENDER_INDEX_HTML = legacy_app._render_index_html
++ONNX_STREAM_QUEUE_POLL_SECONDS = 0.05
++ONNX_STREAM_WORKER_JOIN_TIMEOUT_SECONDS = 10.0
++
++
++class OnnxStreamingWorkerTimeout(RuntimeError):
++    pass
++
++
++class OnnxStreamingRuntimeFailure(RuntimeError):
++    pass
++
++
++class _OnnxStreamCancelled(Exception):
++    pass
+ 
+ 
+ class _OnnxDeviceInfo:
+@@ -40,6 +54,8 @@ class _OnnxDeviceInfo:
+ 
+ 
+ class OnnxNanoTTSServiceAdapter:
++    supports_cooperative_stream_cancellation = True
++
+     def __init__(
+         self,
+         *,
+@@ -249,12 +265,36 @@ class OnnxNanoTTSServiceAdapter:
+         audio_top_k: int = 25,
+         audio_repetition_penalty: float = 1.2,
+         seed: int | None = None,
++        cancel_event: threading.Event | None = None,
+     ) -> Iterator[dict[str, object]]:
+         del mode, tts_max_batch_size, codec_max_batch_size
+         event_queue: "queue.Queue[dict[str, object] | None]" = queue.Queue(maxsize=128)
++        cancellation_event = cancel_event if cancel_event is not None else threading.Event()
++        worker_done_event = threading.Event()
++        worker_failure: list[BaseException] = []
++
++        def _put_event(item: dict[str, object]) -> bool:
++            while not cancellation_event.is_set():
++                try:
++                    event_queue.put(item, timeout=ONNX_STREAM_QUEUE_POLL_SECONDS)
++                    return True
++                except queue.Full:
++                    continue
++            return False
++
++        def _raise_if_canceled() -> None:
++            if cancellation_event.is_set():
++                raise _OnnxStreamCancelled()
++
++        def _reset_codec_state() -> None:
++            try:
++                self.runtime.codec_streaming_session.reset()
++            except Exception as exc:
++                raise OnnxStreamingRuntimeFailure(f"ONNX streaming codec cleanup failed: {exc}") from exc
+ 
+         def _worker() -> None:
+             try:
++                _raise_if_canceled()
+                 resolved_sample_mode = self._resolve_sample_mode(attn_implementation, do_sample=do_sample)
+                 self._apply_generation_options(
+                     sample_mode=resolved_sample_mode,
+@@ -269,6 +309,7 @@ class OnnxNanoTTSServiceAdapter:
+                     audio_repetition_penalty=audio_repetition_penalty,
+                     seed=seed,
+                 )
++                _raise_if_canceled()
+                 start_time = time.perf_counter()
+                 prompt_audio_codes = self.runtime.resolve_prompt_audio_codes(voice=voice, prompt_audio_path=prompt_audio_path)
+                 text_chunks = self.runtime.split_voice_clone_text(str(text or ""), max_tokens=int(voice_clone_max_text_tokens))
+@@ -280,14 +321,16 @@ class OnnxNanoTTSServiceAdapter:
+                 all_generated_frames: list[list[int]] = []
+ 
+                 for chunk_index, chunk_text in enumerate(text_chunks):
++                    _raise_if_canceled()
+                     text_token_ids = self.runtime.encode_text(chunk_text)
+                     request_rows = self.runtime.build_voice_clone_request_rows(prompt_audio_codes, text_token_ids)
+                     pending_decode_frames: list[list[int]] = []
+                     emitted_chunks: list[np.ndarray] = []
+-                    self.runtime.codec_streaming_session.reset()
++                    _reset_codec_state()
+ 
+                     def _emit_waveform(waveform: np.ndarray, *, is_pause: bool) -> None:
+                         nonlocal emitted_samples_total, first_audio_emitted_at_perf
++                        _raise_if_canceled()
+                         audio_length = int(waveform.shape[0])
+                         if first_audio_emitted_at_perf is None and not is_pause:
+                             first_audio_emitted_at_perf = time.perf_counter()
+@@ -297,7 +340,7 @@ class OnnxNanoTTSServiceAdapter:
+                             elapsed_since_first_audio = max(0.0, time.perf_counter() - first_audio_emitted_at_perf)
+                             lead_seconds = (emitted_samples_total / float(sample_rate)) - elapsed_since_first_audio
+                         emitted_chunks.append(np.asarray(waveform, dtype=np.float32))
+-                        event_queue.put(
++                        if not _put_event(
+                             {
+                                 "type": "audio",
+                                 "waveform_numpy": np.asarray(waveform, dtype=np.float32),
+@@ -308,9 +351,11 @@ class OnnxNanoTTSServiceAdapter:
+                                 "lead_seconds": lead_seconds,
+                                 "is_pause": bool(is_pause),
+                             }
+-                        )
++                        ):
++                            raise _OnnxStreamCancelled()
+ 
+                     def _decode_pending(force: bool) -> None:
++                        _raise_if_canceled()
+                         pending_count = len(pending_decode_frames)
+                         if pending_count <= 0:
+                             return
+@@ -325,6 +370,7 @@ class OnnxNanoTTSServiceAdapter:
+                         frame_chunk = pending_decode_frames[:frame_budget]
+                         del pending_decode_frames[:frame_budget]
+                         decoded = self.runtime.codec_streaming_session.run_frames(frame_chunk)
++                        _raise_if_canceled()
+                         if decoded is None:
+                             return
+                         audio, audio_length = decoded
+@@ -336,6 +382,7 @@ class OnnxNanoTTSServiceAdapter:
+                         _emit_waveform(waveform, is_pause=False)
+ 
+                     def _on_frame(_generated_frames: list[list[int]], _step_index: int, frame: list[int]) -> None:
++                        _raise_if_canceled()
+                         pending_decode_frames.append(list(frame))
+                         _decode_pending(False)
+ 
+@@ -343,8 +390,9 @@ class OnnxNanoTTSServiceAdapter:
+                         generated_frames = self.runtime.generate_audio_frames(request_rows, on_frame=_on_frame)
+                         _decode_pending(True)
+                     finally:
+-                        self.runtime.codec_streaming_session.reset()
++                        _reset_codec_state()
+ 
++                    _raise_if_canceled()
+                     chunk_waveform = _concat_waveforms(emitted_chunks)
+                     all_waveforms.append(chunk_waveform)
+                     all_generated_frames.extend(generated_frames)
+@@ -357,13 +405,15 @@ class OnnxNanoTTSServiceAdapter:
+                             _emit_waveform(pause_waveform, is_pause=True)
+                             all_waveforms.append(pause_waveform)
+ 
++                _raise_if_canceled()
+                 waveform = _concat_waveforms(all_waveforms)
+                 output_path = _write_waveform_to_wav(
+                     self.output_dir / "app_onnx_stream_output.wav",
+                     waveform,
+                     sample_rate,
+                 )
+-                event_queue.put(
++                _raise_if_canceled()
++                _put_event(
+                     {
+                         "type": "result",
+                         **self._format_result_payload(
+@@ -377,35 +427,72 @@ class OnnxNanoTTSServiceAdapter:
+                         ),
+                     }
+                 )
++            except _OnnxStreamCancelled:
++                logging.info("ONNX streaming cancellation reached a safe frame boundary")
++            except OnnxStreamingRuntimeFailure as exc:
++                worker_failure.append(exc)
++                _put_event({"type": "error", "error": str(exc), "runtime_unusable": True})
+             except Exception as exc:
+-                event_queue.put({"type": "error", "error": str(exc)})
++                worker_failure.append(RuntimeError(str(exc)))
++                _put_event({"type": "error", "error": str(exc)})
+             finally:
+-                event_queue.put(None)
+-
++                worker_done_event.set()
++                try:
++                    event_queue.put_nowait(None)
++                except queue.Full:
++                    pass
++
++        if cancellation_event.is_set():
++            logging.info("ONNX streaming cancellation requested before worker start")
++            return
+         worker = threading.Thread(target=_worker, name="onnx-synthesize-stream", daemon=True)
+         worker.start()
+-        while True:
+-            item = event_queue.get()
+-            if item is None:
+-                break
+-            if str(item.get("type")) == "error":
+-                raise RuntimeError(str(item.get("error") or "Unknown ONNX streaming error"))
+-            yield item
++        propagated_worker_failure = False
++        try:
++            while True:
++                if cancellation_event.is_set():
++                    break
++                try:
++                    item = event_queue.get(timeout=ONNX_STREAM_QUEUE_POLL_SECONDS)
++                except queue.Empty:
++                    if worker_done_event.is_set():
++                        break
++                    continue
++                if item is None:
++                    break
++                if str(item.get("type")) == "error":
++                    message = str(item.get("error") or "Unknown ONNX streaming error")
++                    propagated_worker_failure = True
++                    if bool(item.get("runtime_unusable")):
++                        raise OnnxStreamingRuntimeFailure(message)
++                    raise RuntimeError(message)
++                yield item
++        finally:
++            cancellation_requested = not worker_done_event.is_set()
++            if cancellation_requested:
++                logging.info("ONNX streaming cancellation requested; waiting for worker shutdown")
++            cancellation_event.set()
++            worker.join(timeout=ONNX_STREAM_WORKER_JOIN_TIMEOUT_SECONDS)
++            if worker.is_alive():
++                message = (
++                    "ONNX streaming worker did not stop within "
++                    f"{ONNX_STREAM_WORKER_JOIN_TIMEOUT_SECONDS:.1f}s; shared runtime restart required"
++                )
++                logging.error(message)
++                raise OnnxStreamingWorkerTimeout(message)
++            if worker_failure and not propagated_worker_failure:
++                raise worker_failure[0]
++            if cancellation_requested:
++                logging.info("ONNX streaming worker stopped after cancellation")
+ 
+ 
+ class OnnxRequestRuntimeManager:
+-    _factory_model_dir: Path | None = None
+-    _factory_output_dir: Path | None = None
+-    _factory_max_new_frames: int = 375
+-    _factory_execution_provider: str = "cpu"
+-    _factory_text_normalizer_manager: WeTextProcessingManager | None = None
+-
+     def __init__(self, default_runtime: OnnxNanoTTSServiceAdapter) -> None:
+         self.default_runtime = default_runtime
+-        self.default_cpu_threads = max(1, int(os.cpu_count() or 1))
+-        self._lock = threading.Lock()
++        self.default_cpu_threads = max(1, int(default_runtime.thread_count))
+         self._execution_lock = threading.Lock()
+-        self._cpu_runtimes: dict[int, OnnxNanoTTSServiceAdapter] = {default_runtime.thread_count: default_runtime}
++        self._runtime_failure_lock = threading.Lock()
++        self._runtime_failure: str | None = None
+ 
+     @staticmethod
+     def normalize_requested_execution_device(requested: str | None) -> str:
+@@ -417,34 +504,49 @@ class OnnxRequestRuntimeManager:
+         return False
+ 
+     def is_cpu_runtime_loaded(self) -> bool:
+-        with self._lock:
+-            return bool(self._cpu_runtimes)
++        return True
++
++    def runtime_count(self) -> int:
++        return 1
++
++    def loaded_runtime_threads(self) -> list[int]:
++        return [self.default_cpu_threads]
++
++    def status(self) -> dict[str, object]:
++        with self._runtime_failure_lock:
++            runtime_failure = self._runtime_failure
++        payload: dict[str, object] = {
++            "runtime_count": self.runtime_count(),
++            "default_runtime_threads": self.default_cpu_threads,
++            "loaded_runtime_threads": self.loaded_runtime_threads(),
++            "request_cpu_threads_policy": "server_start_runtime",
++            "runtime_healthy": runtime_failure is None,
++            "runtime_failure": runtime_failure,
++        }
++        runtime = getattr(self.default_runtime, "runtime", None)
++        session_status = getattr(runtime, "session_status", None)
++        if callable(session_status):
++            payload["session_status"] = session_status()
++        return payload
++
++    def _mark_runtime_failed(self, error: BaseException) -> None:
++        message = str(error) or error.__class__.__name__
++        with self._runtime_failure_lock:
++            if self._runtime_failure is None:
++                self._runtime_failure = message
++        logging.error("Shared ONNX runtime marked unusable; restart required: %s", message)
++
++    def _raise_if_runtime_failed(self) -> None:
++        with self._runtime_failure_lock:
++            runtime_failure = self._runtime_failure
++        if runtime_failure is not None:
++            raise OnnxStreamingRuntimeFailure(
++                f"Shared ONNX runtime is unavailable after streaming cleanup failure: {runtime_failure}"
++            )
+ 
+     def _resolve_cpu_threads(self, cpu_threads: int | None) -> int:
+-        if cpu_threads is None:
+-            return self.default_cpu_threads
+-        try:
+-            normalized_threads = int(cpu_threads)
+-        except Exception:
+-            return self.default_cpu_threads
+-        if normalized_threads <= 0:
+-            return self.default_cpu_threads
+-        return max(1, normalized_threads)
+-
+-    def _build_runtime_locked(self, cpu_threads: int) -> OnnxNanoTTSServiceAdapter:
+-        runtime = self._cpu_runtimes.get(cpu_threads)
+-        if runtime is not None:
+-            return runtime
+-        runtime = OnnxNanoTTSServiceAdapter(
+-            model_dir=self._factory_model_dir or self.default_runtime.model_dir,
+-            output_dir=self._factory_output_dir or self.default_runtime.output_dir,
+-            cpu_threads=cpu_threads,
+-            execution_provider=self._factory_execution_provider,
+-            max_new_frames=self._factory_max_new_frames,
+-            text_normalizer_manager=self._factory_text_normalizer_manager,
+-        )
+-        self._cpu_runtimes[cpu_threads] = runtime
+-        return runtime
++        del cpu_threads
++        return self.default_cpu_threads
+ 
+     def resolve_runtime(self, requested: str | None) -> tuple[OnnxNanoTTSServiceAdapter, str]:
+         del requested
+@@ -453,10 +555,9 @@ class OnnxRequestRuntimeManager:
+     @contextmanager
+     def _locked_runtime(self, cpu_threads: int | None) -> Iterator[tuple[OnnxNanoTTSServiceAdapter, str, int]]:
+         resolved_cpu_threads = self._resolve_cpu_threads(cpu_threads)
+-        with self._lock:
+-            runtime = self._build_runtime_locked(resolved_cpu_threads)
+         with self._execution_lock:
+-            yield runtime, runtime.execution_provider, resolved_cpu_threads
++            self._raise_if_runtime_failed()
++            yield self.default_runtime, self.default_runtime.execution_provider, resolved_cpu_threads
+ 
+     def call_with_runtime(
+         self,
+@@ -467,7 +568,11 @@ class OnnxRequestRuntimeManager:
+     ) -> tuple[object, str, int]:
+         del requested_execution_device
+         with self._locked_runtime(cpu_threads) as (runtime, execution_device, resolved_cpu_threads):
+-            return callback(runtime), execution_device, resolved_cpu_threads
++            try:
++                return callback(runtime), execution_device, resolved_cpu_threads
++            except (OnnxStreamingRuntimeFailure, OnnxStreamingWorkerTimeout) as exc:
++                self._mark_runtime_failed(exc)
++                raise
+ 
+     def iter_with_runtime(
+         self,
+@@ -478,8 +583,21 @@ class OnnxRequestRuntimeManager:
+     ) -> Iterator[tuple[object, str, int]]:
+         del requested_execution_device
+         with self._locked_runtime(cpu_threads) as (runtime, execution_device, resolved_cpu_threads):
+-            for item in factory(runtime):
+-                yield item, execution_device, resolved_cpu_threads
++            runtime_iterator = iter(factory(runtime))
++            try:
++                for item in runtime_iterator:
++                    yield item, execution_device, resolved_cpu_threads
++            except (OnnxStreamingRuntimeFailure, OnnxStreamingWorkerTimeout) as exc:
++                self._mark_runtime_failed(exc)
++                raise
++            finally:
++                close = getattr(runtime_iterator, "close", None)
++                if callable(close):
++                    try:
++                        close()
++                    except (OnnxStreamingRuntimeFailure, OnnxStreamingWorkerTimeout) as exc:
++                        self._mark_runtime_failed(exc)
++                        raise
+ 
+ 
+ def _render_index_html_onnx(
+@@ -519,7 +637,13 @@ def _render_index_html_onnx(
+     )
+     html = html.replace(
+         'This app is CPU-only. CPU Threads maps to torch.set_num_threads for that request.',
+-        'This ONNX app uses the server-start execution provider. CPU Threads selects the cached ONNX runtime instance for that request.',
++        'This ONNX app reuses the server-start runtime. CPU Threads is accepted for compatibility and resolves to the startup thread count.',
++    )
++    html = re.sub(
++        r"const DEFAULT_CPU_THREADS = [^;]+;",
++        f"const DEFAULT_CPU_THREADS = {max(1, int(getattr(runtime, 'thread_count', 1)))};",
++        html,
++        count=1,
+     )
+     html = html.replace(
+         '</style>',
+@@ -630,11 +754,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
+     warmup_manager = legacy_app.WarmupManager(runtime, text_normalizer_manager=text_normalizer_manager)
+     warmup_manager.start()
+ 
+-    OnnxRequestRuntimeManager._factory_model_dir = runtime.model_dir
+-    OnnxRequestRuntimeManager._factory_output_dir = output_dir
+-    OnnxRequestRuntimeManager._factory_max_new_frames = int(args.max_new_frames)
+-    OnnxRequestRuntimeManager._factory_execution_provider = runtime.execution_provider
+-    OnnxRequestRuntimeManager._factory_text_normalizer_manager = text_normalizer_manager
+     legacy_app.RequestRuntimeManager = OnnxRequestRuntimeManager
+     legacy_app._render_index_html = _render_index_html_onnx
+ 
+diff --git a/ort_cpu_runtime.py b/ort_cpu_runtime.py
+index 0b9e5d2..59c333d 100644
+--- a/ort_cpu_runtime.py
++++ b/ort_cpu_runtime.py
+@@ -2,6 +2,7 @@ from __future__ import annotations
+ 
+ import json
+ import math
++import threading
+ import time
+ from dataclasses import dataclass
+ from pathlib import Path
+@@ -309,6 +310,39 @@ class CodecStreamingDecodeSession:
+         )
+ 
+ 
++class LazyOrtSessionStore:
++    def __init__(self, factories: dict[str, Callable[[], ort.InferenceSession]]) -> None:
++        self._factories = dict(factories)
++        self._sessions: dict[str, ort.InferenceSession] = {}
++        self._lock = threading.Lock()
++
++    def __contains__(self, key: object) -> bool:
++        return isinstance(key, str) and key in self._factories
++
++    def __getitem__(self, key: str) -> ort.InferenceSession:
++        with self._lock:
++            session = self._sessions.get(key)
++            if session is not None:
++                return session
++            factory = self._factories.get(key)
++            if factory is None:
++                raise KeyError(key)
++            session = factory()
++            self._sessions[key] = session
++            return session
++
++    def available_keys(self) -> list[str]:
++        return sorted(self._factories)
++
++    def loaded_keys(self) -> list[str]:
++        with self._lock:
++            return sorted(self._sessions)
++
++    def loaded_count(self) -> int:
++        with self._lock:
++            return len(self._sessions)
++
++
+ class OrtCpuRuntime:
+     def __init__(
+         self,
+@@ -344,10 +378,8 @@ class OrtCpuRuntime:
+         self.codec_meta = json.loads(self.codec_meta_path.read_text(encoding="utf-8"))
+         self.rng = np.random.default_rng(1234)
+         self.sessions = self._create_sessions()
+-        self.codec_streaming_session = CodecStreamingDecodeSession(
+-            codec_meta=self.codec_meta,
+-            session=self.sessions["codec_decode_step"],
+-        )
++        self._codec_streaming_session: CodecStreamingDecodeSession | None = None
++        self._codec_streaming_session_lock = threading.Lock()
+ 
+     @staticmethod
+     def _resolve_manifest_path(model_dir: Path) -> Path:
+@@ -381,6 +413,11 @@ class OrtCpuRuntime:
+         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+         options.intra_op_num_threads = self.thread_count
+         options.inter_op_num_threads = 1
++        if self.execution_provider != EXECUTION_PROVIDER_CUDA:
++            # The default BFC arena grows to the peak working set (~4.9GB after two
++            # generations) and never returns memory to the OS. Plain mallocs keep
++            # RSS near the true working set on the CPU path.
++            options.enable_cpu_mem_arena = False
+         session = ort.InferenceSession(str(path_value), sess_options=options, providers=self.ort_providers)
+         if self.execution_provider == EXECUTION_PROVIDER_CUDA and "CUDAExecutionProvider" not in session.get_providers():
+             raise RuntimeError(
+@@ -389,31 +426,58 @@ class OrtCpuRuntime:
+             )
+         return session
+ 
+-    def _create_sessions(self) -> dict[str, ort.InferenceSession]:
++    @property
++    def codec_streaming_session(self) -> CodecStreamingDecodeSession:
++        with self._codec_streaming_session_lock:
++            if self._codec_streaming_session is None:
++                self._codec_streaming_session = CodecStreamingDecodeSession(
++                    codec_meta=self.codec_meta,
++                    session=self.sessions["codec_decode_step"],
++                )
++            return self._codec_streaming_session
++
++    def _session_factory(self, path_value: Path) -> Callable[[], ort.InferenceSession]:
++        resolved_path = path_value
++        return lambda: self._session(resolved_path)
++
++    def _create_sessions(self) -> LazyOrtSessionStore:
+         tts_dir = self.tts_meta_path.parent
+         codec_dir = self.codec_meta_path.parent
++        return LazyOrtSessionStore(
++            {
++                "prefill": self._session_factory(tts_dir / self.tts_meta["files"]["prefill"]),
++                "decode": self._session_factory(tts_dir / self.tts_meta["files"]["decode_step"]),
++                "local_decoder": self._session_factory(tts_dir / self.tts_meta["files"]["local_decoder"]),
++                **(
++                    {"local_greedy_frame": self._session_factory(tts_dir / self.tts_meta["files"]["local_greedy_frame"])}
++                    if self.tts_meta["files"].get("local_greedy_frame")
++                    else {}
++                ),
++                **(
++                    {
++                        "local_fixed_sampled_frame": self._session_factory(
++                            tts_dir / self.tts_meta["files"]["local_fixed_sampled_frame"]
++                        )
++                    }
++                    if self.tts_meta["files"].get("local_fixed_sampled_frame")
++                    else {}
++                ),
++                **(
++                    {"local_cached_step": self._session_factory(tts_dir / self.tts_meta["files"]["local_cached_step"])}
++                    if self.tts_meta["files"].get("local_cached_step")
++                    else {}
++                ),
++                "codec_encode": self._session_factory(codec_dir / self.codec_meta["files"]["encode"]),
++                "codec_decode": self._session_factory(codec_dir / self.codec_meta["files"]["decode_full"]),
++                "codec_decode_step": self._session_factory(codec_dir / self.codec_meta["files"]["decode_step"]),
++            }
++        )
++
++    def session_status(self) -> dict[str, object]:
+         return {
+-            "prefill": self._session(tts_dir / self.tts_meta["files"]["prefill"]),
+-            "decode": self._session(tts_dir / self.tts_meta["files"]["decode_step"]),
+-            "local_decoder": self._session(tts_dir / self.tts_meta["files"]["local_decoder"]),
+-            **(
+-                {"local_greedy_frame": self._session(tts_dir / self.tts_meta["files"]["local_greedy_frame"])}
+-                if self.tts_meta["files"].get("local_greedy_frame")
+-                else {}
+-            ),
+-            **(
+-                {"local_fixed_sampled_frame": self._session(tts_dir / self.tts_meta["files"]["local_fixed_sampled_frame"])}
+-                if self.tts_meta["files"].get("local_fixed_sampled_frame")
+-                else {}
+-            ),
+-            **(
+-                {"local_cached_step": self._session(tts_dir / self.tts_meta["files"]["local_cached_step"])}
+-                if self.tts_meta["files"].get("local_cached_step")
+-                else {}
+-            ),
+-            "codec_encode": self._session(codec_dir / self.codec_meta["files"]["encode"]),
+-            "codec_decode": self._session(codec_dir / self.codec_meta["files"]["decode_full"]),
+-            "codec_decode_step": self._session(codec_dir / self.codec_meta["files"]["decode_step"]),
++            "available_session_count": len(self.sessions.available_keys()),
++            "loaded_session_count": self.sessions.loaded_count(),
++            "loaded_sessions": self.sessions.loaded_keys(),
+         }
+ 
+     def list_builtin_voices(self) -> list[dict[str, Any]]:
+@@ -827,6 +891,7 @@ __all__ = [
+     "CodecStreamingDecodeSession",
+     "EXECUTION_PROVIDER_CPU",
+     "EXECUTION_PROVIDER_CUDA",
++    "LazyOrtSessionStore",
+     "OrtCpuRuntime",
+     "SAMPLE_MODE_FIXED",
+     "SAMPLE_MODE_FULL",
+diff --git a/tests/test_app_onnx_runtime_manager.py b/tests/test_app_onnx_runtime_manager.py
+new file mode 100644
+index 0000000..5c5aa48
+--- /dev/null
++++ b/tests/test_app_onnx_runtime_manager.py
+@@ -0,0 +1,373 @@
++from __future__ import annotations
++
++import tempfile
++import threading
++import time
++import unittest
++from pathlib import Path
++from unittest.mock import patch
++
++import numpy as np
++
++import app_onnx
++import ort_cpu_runtime
++
++
++class FakeRuntimeState:
++    def session_status(self) -> dict[str, object]:
++        return {
++            "available_session_count": 3,
++            "loaded_session_count": 1,
++            "loaded_sessions": ["prefill"],
++        }
++
++
++class FakeOnnxRuntime:
++    def __init__(
++        self,
++        *,
++        thread_count: int = 4,
++        execution_provider: str = "cpu",
++        runtime: FakeRuntimeState | None = None,
++    ) -> None:
++        self.thread_count = thread_count
++        self.execution_provider = execution_provider
++        if runtime is not None:
++            self.runtime = runtime
++
++
++class FakeCodecStreamingSession:
++    def __init__(self, runtime: "FakeStreamingRuntime") -> None:
++        self.runtime = runtime
++        self._thread_state = threading.local()
++
++    def reset(self) -> None:
++        reset_count = int(getattr(self._thread_state, "reset_count", 0)) + 1
++        self._thread_state.reset_count = reset_count
++        if reset_count == 2:
++            self.runtime.cleanup_started.set()
++            self.runtime.allow_cleanup.wait(timeout=2.0)
++            self.runtime.cleanup_complete.set()
++
++    def run_frames(self, frames: list[list[int]]) -> tuple[np.ndarray, int] | None:
++        if not frames:
++            return None
++        audio_length = 960
++        return np.full((1, 2, audio_length), 0.01, dtype=np.float32), audio_length
++
++
++class FakeStreamingRuntime:
++    def __init__(self, *, block_after_first_frame: bool = False, gate_cleanup: bool = False) -> None:
++        self.codec_meta = {"codec_config": {"sample_rate": 48000, "channels": 2}}
++        self.codec_streaming_session = FakeCodecStreamingSession(self)
++        self.block_after_first_frame = block_after_first_frame
++        self.allow_generation = threading.Event()
++        if not block_after_first_frame:
++            self.allow_generation.set()
++        self.allow_cleanup = threading.Event()
++        if not gate_cleanup:
++            self.allow_cleanup.set()
++        self.cleanup_started = threading.Event()
++        self.cleanup_complete = threading.Event()
++        self.generation_exited = threading.Event()
++        self._active_lock = threading.Lock()
++        self.active_generations = 0
++        self.generation_entries = 0
++        self.overlap_detected = False
++
++    def resolve_prompt_audio_codes(self, *, voice: str | None, prompt_audio_path: str | None) -> list[int]:
++        del voice, prompt_audio_path
++        return [1]
++
++    def split_voice_clone_text(self, text: str, *, max_tokens: int) -> list[str]:
++        del max_tokens
++        return [text]
++
++    def encode_text(self, text: str) -> list[int]:
++        del text
++        return [1]
++
++    def build_voice_clone_request_rows(
++        self,
++        prompt_audio_codes: list[int],
++        text_token_ids: list[int],
++    ) -> dict[str, list[list[int]]]:
++        del prompt_audio_codes, text_token_ids
++        return {"inputIds": [[1]], "attentionMask": [[1]]}
++
++    def generate_audio_frames(self, request_rows: object, *, on_frame: object) -> list[list[int]]:
++        del request_rows
++        callback = on_frame
++        with self._active_lock:
++            self.active_generations += 1
++            self.generation_entries += 1
++            if self.active_generations > 1:
++                self.overlap_detected = True
++        frames: list[list[int]] = []
++        try:
++            for step_index in range(10000):
++                frame = [step_index]
++                frames.append(frame)
++                callback(frames, step_index, frame)  # type: ignore[operator]
++                if step_index == 0:
++                    self.allow_generation.wait(timeout=2.0)
++                time.sleep(0.001)
++            return frames
++        finally:
++            with self._active_lock:
++                self.active_generations -= 1
++            self.generation_exited.set()
++
++
++def build_streaming_adapter(runtime: FakeStreamingRuntime, output_dir: Path) -> app_onnx.OnnxNanoTTSServiceAdapter:
++    adapter = object.__new__(app_onnx.OnnxNanoTTSServiceAdapter)
++    adapter.runtime = runtime  # type: ignore[assignment]
++    adapter.output_dir = output_dir
++    adapter.thread_count = 4
++    adapter.execution_provider = "cpu"
++    adapter._resolve_sample_mode = lambda _requested, *, do_sample: "fixed"  # type: ignore[method-assign]
++    adapter._apply_generation_options = lambda **_kwargs: None  # type: ignore[method-assign]
++    adapter._format_result_payload = lambda **kwargs: kwargs  # type: ignore[method-assign]
++    return adapter
++
++
++def start_fake_stream(
++    adapter: app_onnx.OnnxNanoTTSServiceAdapter,
++    *,
++    cancel_event: threading.Event | None = None,
++):
++    return adapter.synthesize_stream(
++        text="测试中断",
++        mode="voice_clone",
++        voice="Xiaoyu",
++        prompt_audio_path=None,
++        max_new_frames=100,
++        voice_clone_max_text_tokens=75,
++        cancel_event=cancel_event,
++    )
++
++
++class OnnxRequestRuntimeManagerTest(unittest.TestCase):
++    def test_call_with_runtime_reuses_startup_runtime_for_any_request_threads(self) -> None:
++        runtime = FakeOnnxRuntime(thread_count=4)
++        manager = app_onnx.OnnxRequestRuntimeManager(runtime)  # type: ignore[arg-type]
++
++        with patch.object(app_onnx, "OnnxNanoTTSServiceAdapter", side_effect=AssertionError("unexpected runtime build")):
++            result, execution_device, resolved_threads = manager.call_with_runtime(
++                requested_execution_device="cpu",
++                cpu_threads=99,
++                callback=lambda selected_runtime: selected_runtime,
++            )
++
++        self.assertIs(result, runtime)
++        self.assertEqual(execution_device, "cpu")
++        self.assertEqual(resolved_threads, 4)
++        self.assertEqual(manager.runtime_count(), 1)
++        self.assertEqual(manager.loaded_runtime_threads(), [4])
++
++    def test_iter_with_runtime_preserves_streaming_iteration(self) -> None:
++        runtime = FakeOnnxRuntime(thread_count=6)
++        manager = app_onnx.OnnxRequestRuntimeManager(runtime)  # type: ignore[arg-type]
++
++        def factory(selected_runtime: FakeOnnxRuntime):
++            self.assertIs(selected_runtime, runtime)
++            yield {"type": "audio", "index": 0}
++            yield {"type": "audio", "index": 1}
++
++        with patch.object(app_onnx, "OnnxNanoTTSServiceAdapter", side_effect=AssertionError("unexpected runtime build")):
++            events = list(
++                manager.iter_with_runtime(
++                    requested_execution_device="cpu",
++                    cpu_threads=0,
++                    factory=factory,
++                )
++            )
++
++        self.assertEqual(
++            events,
++            [
++                ({"type": "audio", "index": 0}, "cpu", 6),
++                ({"type": "audio", "index": 1}, "cpu", 6),
++            ],
++        )
++
++    def test_status_reports_single_shared_runtime(self) -> None:
++        runtime = FakeOnnxRuntime(thread_count=4)
++        manager = app_onnx.OnnxRequestRuntimeManager(runtime)  # type: ignore[arg-type]
++
++        self.assertEqual(
++            manager.status(),
++            {
++                "runtime_count": 1,
++                "default_runtime_threads": 4,
++                "loaded_runtime_threads": [4],
++                "request_cpu_threads_policy": "server_start_runtime",
++                "runtime_healthy": True,
++                "runtime_failure": None,
++            },
++        )
++
++    def test_status_includes_lazy_session_status_when_available(self) -> None:
++        runtime = FakeOnnxRuntime(thread_count=4, runtime=FakeRuntimeState())
++        manager = app_onnx.OnnxRequestRuntimeManager(runtime)  # type: ignore[arg-type]
++
++        status = manager.status()
++
++        self.assertEqual(status["runtime_count"], 1)
++        self.assertEqual(
++            status["session_status"],
++            {
++                "available_session_count": 3,
++                "loaded_session_count": 1,
++                "loaded_sessions": ["prefill"],
++            },
++        )
++
++
++class LazyOrtSessionStoreTest(unittest.TestCase):
++    def test_session_is_created_only_on_first_access(self) -> None:
++        created: list[str] = []
++        session = object()
++        store = ort_cpu_runtime.LazyOrtSessionStore(
++            {
++                "prefill": lambda: created.append("prefill") or session,  # type: ignore[dict-item]
++            }
++        )
++
++        self.assertIn("prefill", store)
++        self.assertEqual(store.available_keys(), ["prefill"])
++        self.assertEqual(store.loaded_count(), 0)
++        self.assertEqual(store.loaded_keys(), [])
++
++        self.assertIs(store["prefill"], session)
++        self.assertIs(store["prefill"], session)
++
++        self.assertEqual(created, ["prefill"])
++        self.assertEqual(store.loaded_count(), 1)
++        self.assertEqual(store.loaded_keys(), ["prefill"])
++
++
++class OnnxStreamingCancellationTest(unittest.TestCase):
++    def test_closing_after_first_audio_joins_inner_worker_and_cleans_codec_state(self) -> None:
++        with tempfile.TemporaryDirectory() as temp_dir:
++            runtime = FakeStreamingRuntime()
++            adapter = build_streaming_adapter(runtime, Path(temp_dir))
++            stream = start_fake_stream(adapter)
++
++            first_event = next(stream)
++            stream.close()
++
++        self.assertEqual(first_event["type"], "audio")
++        self.assertTrue(runtime.generation_exited.wait(timeout=1.0))
++        self.assertTrue(runtime.cleanup_complete.wait(timeout=1.0))
++        self.assertFalse(any(thread.name == "onnx-synthesize-stream" for thread in threading.enumerate()))
++
++    def test_repeated_cancellation_does_not_leak_worker_threads(self) -> None:
++        baseline = sum(thread.name == "onnx-synthesize-stream" for thread in threading.enumerate())
++        with tempfile.TemporaryDirectory() as temp_dir:
++            for _ in range(8):
++                runtime = FakeStreamingRuntime()
++                adapter = build_streaming_adapter(runtime, Path(temp_dir))
++                stream = start_fake_stream(adapter)
++                self.assertEqual(next(stream)["type"], "audio")
++                stream.close()
++                self.assertTrue(runtime.cleanup_complete.wait(timeout=1.0))
++
++        remaining = sum(thread.name == "onnx-synthesize-stream" for thread in threading.enumerate())
++        self.assertEqual(remaining, baseline)
++
++    def test_execution_lock_is_held_until_canceled_worker_cleanup_finishes(self) -> None:
++        with tempfile.TemporaryDirectory() as temp_dir:
++            runtime = FakeStreamingRuntime(gate_cleanup=True)
++            adapter = build_streaming_adapter(runtime, Path(temp_dir))
++            manager = app_onnx.OnnxRequestRuntimeManager(adapter)
++            first_stream = manager.iter_with_runtime(
++                requested_execution_device="cpu",
++                cpu_threads=4,
++                factory=lambda selected: start_fake_stream(selected),
++            )
++            self.assertEqual(next(first_stream)[0]["type"], "audio")
++
++            second_stream_holder: list[object] = []
++            second_audio = threading.Event()
++
++            def _consume_second() -> None:
++                second_stream = manager.iter_with_runtime(
++                    requested_execution_device="cpu",
++                    cpu_threads=4,
++                    factory=lambda selected: start_fake_stream(selected),
++                )
++                second_stream_holder.append(second_stream)
++                next(second_stream)
++                second_audio.set()
++
++            second_thread = threading.Thread(target=_consume_second, daemon=True)
++            second_thread.start()
++            close_thread = threading.Thread(target=first_stream.close, daemon=True)
++            close_thread.start()
++
++            self.assertTrue(runtime.cleanup_started.wait(timeout=1.0))
++            self.assertEqual(runtime.generation_entries, 1)
++            self.assertFalse(second_audio.is_set())
++            runtime.allow_cleanup.set()
++            close_thread.join(timeout=1.0)
++            self.assertFalse(close_thread.is_alive())
++            self.assertTrue(second_audio.wait(timeout=1.0))
++            self.assertEqual(runtime.generation_entries, 2)
++            self.assertFalse(runtime.overlap_detected)
++            second_thread.join(timeout=1.0)
++            second_stream_holder[0].close()  # type: ignore[attr-defined]
++
++    def test_worker_timeout_marks_shared_runtime_unusable(self) -> None:
++        with tempfile.TemporaryDirectory() as temp_dir:
++            runtime = FakeStreamingRuntime(block_after_first_frame=True)
++            adapter = build_streaming_adapter(runtime, Path(temp_dir))
++            manager = app_onnx.OnnxRequestRuntimeManager(adapter)
++            stream = manager.iter_with_runtime(
++                requested_execution_device="cpu",
++                cpu_threads=4,
++                factory=lambda selected: start_fake_stream(selected),
++            )
++            self.assertEqual(next(stream)[0]["type"], "audio")
++
++            with patch.object(app_onnx, "ONNX_STREAM_WORKER_JOIN_TIMEOUT_SECONDS", 0.01):
++                with self.assertRaises(app_onnx.OnnxStreamingWorkerTimeout):
++                    stream.close()
++
++            status = manager.status()
++            self.assertFalse(status["runtime_healthy"])
++            self.assertIn("restart required", str(status["runtime_failure"]))
++            with self.assertRaises(app_onnx.OnnxStreamingRuntimeFailure):
++                manager.call_with_runtime(
++                    requested_execution_device="cpu",
++                    cpu_threads=4,
++                    callback=lambda selected: selected,
++                )
++            runtime.allow_generation.set()
++            self.assertTrue(runtime.generation_exited.wait(timeout=1.0))
++            self.assertTrue(runtime.cleanup_complete.wait(timeout=1.0))
++
++    def test_streaming_job_close_sets_shared_cancel_event_idempotently(self) -> None:
++        manager = app_onnx.legacy_app.StreamingJobManager()
++        job = manager.create()
++        for _ in range(job.audio_queue.maxsize):
++            job.audio_queue.put_nowait(b"pcm")
++
++        self.assertIs(manager.close(job.stream_id), job)
++        first_requested_at = job.cancel_requested_at
++        self.assertIs(manager.close(job.stream_id), job)
++        job.mark_worker_stopped()
++        snapshot = job.snapshot()
++
++        self.assertTrue(job.cancel_event.is_set())
++        self.assertEqual(job.cancel_requested_at, first_requested_at)
++        self.assertTrue(snapshot["cancel_requested"])
++        self.assertTrue(snapshot["worker_stopped"])
++        queued_items = []
++        while not job.audio_queue.empty():
++            queued_items.append(job.audio_queue.get_nowait())
++        self.assertIn(None, queued_items)
++
++
++if __name__ == "__main__":
++    unittest.main()

@@ -1,0 +1,48 @@
+# Heavyweight local artifacts and generated state — never source.
+models/
+openvino_env/
+qwen35_env/
+MeloTTS.cpp/
+benchmarks/
+cache/
+Log/
+.runtime/
+.ov_cache/
+.mindfs/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Local agent-tool state (machine-specific).
+.agents/
+.claude/
+.codex/
+.vscode/
+
+# Local-only project notes and historical snapshots. These remain available
+# in the private working tree but are not part of the public release.
+.trellis/
+AGENTS.md
+docs/
+ToAI/
+FromBroToRos/
+SAFETY_AUDIT/
+
+# The public monorepo keeps only the ROS2 source tree. Build/install/runtime
+# state is generated locally after cloning.
+ros2/build/
+ros2/install/
+ros2/log/
+ros2/Log/
+ros2/.runtime/
+ros2/.vscode/
+ros2/**/__pycache__/
+ros2/**/*.pyc
+ros2/src/camera/camera.zip
+
+# Historical teammate snapshots and archives are not part of the active system.
+FromBroToRos/mujoco_ws710/
+FromBroToRos/mujoco_ws711/
+FromBroToRos/mujoco_ws712/
+FromBroToRos/mujoco_ws_bro/
+FromBroToRos/mujoco_ws (4).zip

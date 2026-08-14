@@ -1,0 +1,81 @@
+schema_version: 1
+calibration_type: eye_in_hand_layered_xy
+verified_pixel_to_base_affine:
+- - -0.000330057522
+  - 0.0000168016813
+  - 0.276025283
+- - -0.0000326029527
+  - -0.000226905888
+  - 0.460851696
+pixel_to_base_delta:
+- - 0.00019789440480462867
+  - 2.1425139146954032e-05
+- - -9.579321558853683e-06
+  - 0.00010392996284165016
+z_layers:
+- 0.3
+layer_matrices:
+- - - 0.00019789440480462867
+    - 2.1425139146954032e-05
+  - - -9.579321558853683e-06
+    - 0.00010392996284165016
+base_xy_offset:
+- 0.027893982209114
+- 0.09695701268516971
+layer_offsets:
+- - 0.027893982209114
+  - 0.09695701268516971
+known_target_xy:
+- 0.08
+- 0.33
+output_anchor_xy:
+- 0.08
+- 0.33
+output_correction_matrix:
+- - 2.22035638
+  - -0.55975371
+- - 4.71126038
+  - -3.28855304
+output_offset_xy:
+- -0.0112
+- 0.0783
+image_center:
+- 540.0
+- 360.0
+tool_to_camera_xy:
+- 0.0
+- 0.0
+workspace:
+  x:
+  - 0.06
+  - 0.1
+  y:
+  - 0.235
+  - 0.25
+  z:
+  - 0.3
+  - 0.3
+sampled_layer_y_ranges:
+- - 0.235
+  - 0.25
+layer_quality:
+- z_m: 0.3
+  fit_rmse_m: 0.0018173612703451718
+  condition_number: 3.7645810056246516
+  collected_count: 9
+  fitted_count: 9
+  rejected_count: 0
+collected_sample_count: 9
+fitted_sample_count: 9
+fit_outlier_count: 0
+fit_outliers: []
+sample_count: 9
+skipped_count: 0
+skipped_poses: []
+runtime_workspace:
+  min: [-0.32, -0.32, 0.05]
+  max: [0.38, 0.38, 0.30]
+metadata:
+  created_at: '2026-07-12T03:45:35+08:00'
+  source_path: /home/inteldk/AI_ov/FromBroToRos/mujoco_ws712/mujoco_ws/handeye_xy.yaml
+  source_sha256: 252119e2a30c5f65b1778aae66ddc13a7294606db4fbd751a69d0eeb18634990

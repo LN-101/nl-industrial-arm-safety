@@ -1,0 +1,53 @@
+{
+  "version": 2,
+  "rules": [
+    {
+      "id": "stop_on_person_intrusion",
+      "name": "\u4eba\u5458\u4fb5\u5165\u505c\u673a\u89c4\u5219",
+      "enabled": true,
+      "description": "\u5f53\u89c6\u89c9\u6216\u5b89\u5168\u533a\u57df\u68c0\u6d4b\u5230\u4eba\u5458\u8fdb\u5165\u673a\u68b0\u81c2\u4fdd\u62a4\u8ddd\u79bb\u5185\u65f6\uff0c\u7acb\u5373\u505c\u6b62\u673a\u68b0\u81c2\u8fd0\u52a8\u3002",
+      "conditions": {
+        "person_distance_m": {
+          "lt": 3.0
+        }
+      },
+      "action": {
+        "type": "stop_motion",
+        "severity": "critical",
+        "requires_reset": true
+      }
+    },
+    {
+      "id": "slow_near_unknown_object",
+      "name": "\u672a\u77e5\u7269\u4f53\u9760\u8fd1\u9650\u901f\u89c4\u5219",
+      "enabled": true,
+      "description": "\u5f53\u89c6\u89c9\u7cfb\u7edf\u53d1\u73b0\u672a\u77e5\u7269\u4f53\u9760\u8fd1\u6293\u53d6\u8def\u5f84\u65f6\uff0c\u964d\u4f4e\u673a\u68b0\u81c2\u901f\u5ea6\u5e76\u7b49\u5f85\u8def\u5f84\u786e\u8ba4\u3002",
+      "conditions": {
+        "unknown_object_distance_m": {
+          "lt": 0.25
+        }
+      },
+      "action": {
+        "type": "limit_speed",
+        "max_speed_scale": 0.25,
+        "notify_operator": true
+      }
+    },
+    {
+      "id": "hold_on_ros_controller_alarm",
+      "name": "ROS \u63a7\u5236\u5668\u62a5\u8b66\u5b89\u5168\u4fdd\u6301\u89c4\u5219",
+      "enabled": true,
+      "description": "\u5f53 ROS \u63a7\u5236\u5668\u62a5\u544a\u62a5\u8b66\u6216\u901a\u4fe1\u5f02\u5e38\u65f6\uff0c\u673a\u68b0\u81c2\u8fdb\u5165\u5b89\u5168\u4fdd\u6301\u72b6\u6001\u5e76\u901a\u77e5\u64cd\u4f5c\u5458\u3002",
+      "conditions": {
+        "ros_controller_alarm": {
+          "eq": true
+        }
+      },
+      "action": {
+        "type": "safety_hold",
+        "notify_operator": true,
+        "requires_manual_check": true
+      }
+    }
+  ]
+}

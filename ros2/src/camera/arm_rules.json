@@ -1,0 +1,8 @@
+{
+  "arm_capture": false,
+  "arm_capture_goal": "B",
+  "arm_decelerate": 1.0,
+  "arm_stop": false,
+  "arm_recover": false,
+  "arm_safety_distance": 0.4
+}
