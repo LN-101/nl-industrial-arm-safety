@@ -180,8 +180,6 @@ The default Web stream sends `voice=Xiaoyu` without a prompt WAV, so the ONNX
 runtime uses its built-in prompt codes and avoids encoding `zh_11.wav` for each
 turn. An explicit `--moss-prompt-audio <wav>` or
 `--moss-use-yangmi-prompt-audio` setting still selects reference-audio cloning.
-`install_moss_tts_nano.sh` applies the repository-owned Web streaming extension
-under `patches/` and safely recognizes an already-patched runtime source tree.
 Starting a new Web text or voice turn now stops local playback and waits for the
 previous backend/MOSS stream to cancel before the new request begins. The ONNX
 worker keeps exclusive ownership of the shared runtime until it exits and its
