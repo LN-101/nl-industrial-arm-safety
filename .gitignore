@@ -46,3 +46,31 @@ FromBroToRos/mujoco_ws711/
 FromBroToRos/mujoco_ws712/
 FromBroToRos/mujoco_ws_bro/
 FromBroToRos/mujoco_ws (4).zip
+
+# STM32 and embedded build artifacts, object files, and IDE workspace state
+**/build/
+**/bin/
+**/obj/
+**/out/
+**/.eide/
+**/.cmsis/
+**/.pack/
+**/Objects/
+**/Listings/
+STM32/**/MDK-ARM/test/
+*.uvguix.*
+*.uvoptx
+*.lst
+*.o
+*.d
+*.obj
+*.axf
+*.crf
+*.htm
+*.map
+*.lnp
+*.dep
+*.build_log.htm
+compile_commands.json
+
+

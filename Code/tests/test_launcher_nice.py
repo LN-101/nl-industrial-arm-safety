@@ -4,9 +4,10 @@ from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-HELPER = ROOT_DIR / "launcher_nice.sh"
-NO_ROS_LAUNCHER = ROOT_DIR / "start_web_no_ros.sh"
-WITH_ROS_LAUNCHER = ROOT_DIR / "start_web_with_ros.sh"
+SCRIPTS_DIR = ROOT_DIR / "scripts"
+HELPER = SCRIPTS_DIR / "launcher_nice.sh"
+NO_ROS_LAUNCHER = SCRIPTS_DIR / "start_web_no_ros.sh"
+WITH_ROS_LAUNCHER = SCRIPTS_DIR / "start_web_with_ros.sh"
 
 
 class LauncherNiceTest(unittest.TestCase):
