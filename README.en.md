@@ -1,4 +1,4 @@
-# Natural-Language Interactive Human-Robot Safety Collaboration System for Industrial Robotic Arms
+# Natural-Language Interactive Safe HRC for Industrial Arms
 
 **中文（默认）:** [README.md](README.md)
 
@@ -134,7 +134,8 @@ ASR, OpenVINO LLM, TTS, device selection, vision snapshots, and the ROS 2
 bridge. `web/` contains the authenticated HTTP/HTTPS service, confirmation
 flow, voice streaming, and emergency-stop endpoints.
 
-See [`local_safety_assistant/README.md`](local_safety_assistant/README.md).
+See [`local_safety_assistant/README.md`](local_safety_assistant/README.md) for the default Chinese guide or
+[`local_safety_assistant/README.en.md`](local_safety_assistant/README.en.md) for the English guide.
 
 ### `ros2/`: ROS 2 packages
 
@@ -347,6 +348,48 @@ ROS 2 test is green.
 * [`local_safety_assistant/README.md`](local_safety_assistant/README.md) — safety assistant Python core package.
 * [`ros2/readme.md`](ros2/readme.md) — ROS 2 vision snapshot and workspace notes.
 * [`scripts/README.md`](scripts/README.md) — system launchers, resource scheduling, and test tools.
+
+## 👥 Contributors & Team Division
+
+This project is developed by a collaborative team with the following division of responsibilities:
+
+<table>
+  <tr>
+    <td align="center" width="33.3%">
+      <a href="https://github.com/LN-101">
+        <img src="https://github.com/LN-101.png?size=100" width="100px;" alt="LN-101"/>
+        <br />
+        <sub><b>LN-101</b></sub>
+      </a>
+      <br />
+      <sub><b>AI Algorithms & System Orchestration</b></sub>
+      <br />
+      <sub>Responsible for <code>local_safety_assistant/</code> & <code>Code/</code> (OpenVINO LLM/VLM, Whisper ASR, MeloTTS, Web UI, Safety Rule Engine & ROS 2 Bridge)</sub>
+    </td>
+    <td align="center" width="33.3%">
+      <a href="https://github.com/nanshanbot">
+        <img src="https://github.com/nanshanbot.png?size=100" width="100px;" alt="nanshanbot"/>
+        <br />
+        <sub><b>nanshanbot</b></sub>
+      </a>
+      <br />
+      <sub><b>ROS 2 Robotics Stack</b></sub>
+      <br />
+      <sub>Responsible for <code>ros2/</code> workspace (Arm kinematics control, camera RGB-D distance safety monitoring, multi-source e-stop arbitration, MuJoCo simulation & PyQt5 GUI)</sub>
+    </td>
+    <td align="center" width="33.3%">
+      <a href="https://github.com/RM-wD55">
+        <img src="https://github.com/RM-wD55.png?size=100" width="100px;" alt="MY-GIRL (RM-wD55)"/>
+        <br />
+        <sub><b>MY-GIRL (RM-wD55)</b></sub>
+      </a>
+      <br />
+      <sub><b>STM32 Hardware & Embedded Firmware</b></sub>
+      <br />
+      <sub>Responsible for <code>STM32/</code> subsystem (EasyEDA Pro mainboard PCB/schematic design, STM32F407 firmware, CAN 6-axis motor driving, serial protocol & hardware watchdog)</sub>
+    </td>
+  </tr>
+</table>
 
 ## Contributing
 

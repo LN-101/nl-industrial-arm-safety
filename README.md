@@ -1,6 +1,6 @@
 # 可自然语言交互的工业机械臂安全协作系统
 
-**English:** [Natural-Language Interactive Human-Robot Safety Collaboration System for Industrial Robotic Arms](README.en.md)
+**English:** [Natural-Language Interactive Safe HRC for Industrial Arms](README.en.md)
 
 `LN-101/nl-industrial-arm-safety` 是一个面向工业机械臂人机协作的研究与原型系统。它将本地 OpenVINO 语音/大语言模型/视觉模型栈、移动端 Web UI、ROS 2 控制节点、人体与机械臂距离监测，以及多来源急停处理组合在一起。
 
@@ -314,7 +314,49 @@ colcon test --event-handlers console_direct+
 
 部分检查需要 OpenVINO 模型、相机、MuJoCo、桌面显示或串口控制器。在当前快照中，ROS 2 工作空间构建成功；`colcon test` 仍有既存风格/文档检查失败和 3 个机械臂状态标定/时序断言差异，本 README 不宣称所有 ROS 2 测试全绿。
 
-## 贡献
+## 👥 贡献者与团队分工 / Contributors
+
+本项目由团队协同研发完成，各成员分工如下：
+
+<table>
+  <tr>
+    <td align="center" width="33.3%">
+      <a href="https://github.com/LN-101">
+        <img src="https://github.com/LN-101.png?size=100" width="100px;" alt="LN-101"/>
+        <br />
+        <sub><b>LN-101</b></sub>
+      </a>
+      <br />
+      <sub><b>AI 算法与系统编排</b></sub>
+      <br />
+      <sub>负责 <code>local_safety_assistant/</code> 与 <code>Code/</code>（OpenVINO 大模型、ASR 语音识别、TTS 语音合成、Web UI、安全规则引擎及 ROS 2 桥接层）</sub>
+    </td>
+    <td align="center" width="33.3%">
+      <a href="https://github.com/nanshanbot">
+        <img src="https://github.com/nanshanbot.png?size=100" width="100px;" alt="nanshanbot"/>
+        <br />
+        <sub><b>nanshanbot</b></sub>
+      </a>
+      <br />
+      <sub><b>ROS 2 机器人系统</b></sub>
+      <br />
+      <sub>负责 <code>ros2/</code> 工作空间（机械臂运动学控制、相机 RGB-D 距离安全监测、多来源急停仲裁、MuJoCo 仿真与 PyQt5 桌面 GUI）</sub>
+    </td>
+    <td align="center" width="33.3%">
+      <a href="https://github.com/RM-wD55">
+        <img src="https://github.com/RM-wD55.png?size=100" width="100px;" alt="MY-GIRL (RM-wD55)"/>
+        <br />
+        <sub><b>MY-GIRL (RM-wD55)</b></sub>
+      </a>
+      <br />
+      <sub><b>STM32 硬件与嵌入式固件</b></sub>
+      <br />
+      <sub>负责 <code>STM32/</code> 子系统（立创 EDA 主控板 PCB 原理图设计、STM32F407 固件、CAN 6轴电机驱动、串口协议与硬件看门狗）</sub>
+    </td>
+  </tr>
+</table>
+
+## 贡献指南
 
 贡献应保持自然语言编排、规则校验、ROS 2 命令路由、相机安全状态和硬件控制器边界之间的分层。修改路由、规则校验、急停行为和启动契约时，请同时补充聚焦测试。不要提交模型权重、虚拟环境、运行时状态、凭据或未经审查的协作者快照。
 

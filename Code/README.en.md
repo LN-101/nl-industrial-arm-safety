@@ -2,6 +2,8 @@
 
 **中文（默认）:** [README.md](README.md)
 
+> **Module Maintainer**: [@LN-101](https://github.com/LN-101) (Responsible for AI CLI entrypoints, model benchmarks, voice/web launchers, and testing harness)
+
 Run all commands from the repository root with `qwen35_env`:
 
 ```bash

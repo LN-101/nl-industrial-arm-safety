@@ -7,6 +7,8 @@ This directory is the authoritative ROS 2 workspace for the integrated
 natural-language AI layer to the camera, arm controller, simulation, and
 operator GUI.
 
+> **Module Maintainer**: [@nanshanbot](https://github.com/nanshanbot) (Responsible for ROS 2 node architecture, arm kinematics control, camera RGB-D distance safety & vision snapshots, multi-source e-stop arbitration, MuJoCo simulation & PyQt5 GUI)
+
 ## Packages
 
 | Package | Responsibility |

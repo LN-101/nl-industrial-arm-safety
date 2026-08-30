@@ -2,6 +2,8 @@
 
 This directory contains system launch scripts, process/cgroup resource scheduling helper libraries, and standalone routing/safety test tools.
 
+> **Maintainer**: [@LN-101](https://github.com/LN-101) (Responsible for system-level launchers, cgroup resource scheduling, and integration test scripts)
+
 ---
 
 ## Scripts Catalog

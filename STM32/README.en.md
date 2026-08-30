@@ -2,7 +2,9 @@
 
 **中文 (Default):** [README.md](README.md)
 
-This directory contains the **STM32 embedded low-level master control subsystem** for the natural-language interactive industrial robot safety collaboration project. It includes the custom control board PCB circuit design (EasyEDA Pro project & schematic) and the real-time motion control firmware based on the STM32F407 MCU.
+This directory contains the **STM32 embedded low-level master control subsystem** for the Natural-Language Interactive Safe HRC for Industrial Arms project. It includes the custom control board PCB circuit design (EasyEDA Pro project & schematic) and the real-time motion control firmware based on the STM32F407 MCU.
+
+> **Module Maintainer**: [@RM-wD55](https://github.com/RM-wD55) (MY-GIRL) (Responsible for EasyEDA Pro mainboard PCB schematic/layout design, STM32F407 firmware, CAN 6-axis SMD motor driving, serial protocol stack, and hardware watchdog)
 
 ---
 

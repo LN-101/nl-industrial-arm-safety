@@ -1,6 +1,10 @@
 # `local_safety_assistant/` 本地安全助手核心
 
+**English:** [README.en.md](README.en.md)
+
 这是项目的 Python 核心包。它把本地 ASR、LLM、TTS、视觉上下文和 Web UI 连接起来，同时把模型输出限制在可校验的规则、确认和 ROS 2 消息边界内。
+
+> **模块维护者**：[@LN-101](https://github.com/LN-101)（负责 AI 核心架构、OpenVINO 推理、Whisper/MeloTTS 语音链路、规则校验引擎、Web UI 与 ROS 2 桥接层）
 
 ## 处理链路
 

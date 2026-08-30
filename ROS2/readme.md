@@ -4,6 +4,8 @@
 
 这是 `nl-industrial-arm-safety` 的权威 ROS 2 工作空间，负责把自然语言安全助手连接到相机、机械臂控制器、仿真器和操作员 GUI。构建产物 `build/`、`install/`、`log/` 和 `.runtime/` 只在本机生成，不提交到 Git。
 
+> **模块维护者**：[@nanshanbot](https://github.com/nanshanbot)（负责 ROS 2 节点架构、机械臂运动学控制、相机 RGB-D 距离安全与视觉快照、多来源急停仲裁、MuJoCo 仿真及 PyQt5 GUI）
+
 ## 包结构
 
 | 包 | 主要文件/节点 | 职责 |

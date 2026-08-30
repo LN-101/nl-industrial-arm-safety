@@ -4,6 +4,8 @@
 
 `Code/` 是仓库根目录下的开发者入口层。这里的 Python 文件大多是兼容性包装器、模型测试命令或批处理工具；核心安全逻辑位于 [`local_safety_assistant/`](../local_safety_assistant/)。
 
+> **模块维护者**：[@LN-101](https://github.com/LN-101)（负责 AI 兼容入口、模型评测、语音与 Web 启动脚本及测试工具链）
+
 ## 文件职责
 
 | 路径 | 作用 |
